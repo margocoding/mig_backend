@@ -3,7 +3,6 @@ import { Injectable } from '@nestjs/common';
 import { Job } from 'bullmq';
 import fs from 'fs';
 import StreamZip from 'node-stream-zip';
-import path from 'path';
 import { PrismaService } from 'prisma/prisma.service';
 import { MediaService } from 'src/media/media.service';
 
@@ -17,9 +16,8 @@ export class EventZipProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<{ zipPath: string }>) {
-    const { zipPath } = job.data;
-    console.log('📦 ZIP:', zipPath);
+  async process(job: Job<{ zipPath: string; orderDeadline?: Date }>) {
+    const { zipPath, orderDeadline } = job.data;
 
     const zip = new StreamZip.async({ file: zipPath });
 
@@ -29,6 +27,7 @@ export class EventZipProcessor extends WorkerHost {
       type Structure = {
         events: {
           name: string;
+          orderDeadline?: Date,
           flows: {
             name: string;
             speeches: {
@@ -47,9 +46,6 @@ export class EventZipProcessor extends WorkerHost {
 
       const structure: Structure = { events: [] };
 
-      // ===============================
-      // 1️⃣ ЧИТАЕМ СТРУКТУРУ (БЕЗ BUFFER)
-      // ===============================
       for (const entryName of Object.keys(entries)) {
         const entry = entries[entryName];
         if (entry.isDirectory) continue;
@@ -64,7 +60,7 @@ export class EventZipProcessor extends WorkerHost {
 
         let event = structure.events.find((e) => e.name === eventName);
         if (!event) {
-          event = { name: eventName, flows: [] };
+          event = { name: eventName, flows: [], orderDeadline };
           structure.events.push(event);
         }
 
@@ -89,15 +85,14 @@ export class EventZipProcessor extends WorkerHost {
         member.media.push({ entryName, filename });
       }
 
-      // ===============================
-      // 2️⃣ СОЗДАНИЕ ДАННЫХ + ЗАГРУЗКА
-      // ===============================
       for (const event of structure.events) {
         console.log(`🎫 Event: ${event.name}`);
 
         const createdEvent = await this.prisma.event.create({
-          data: { name: event.name, date: new Date() },
+          data: { name: event.name, date: new Date(), orderDeadline: event.orderDeadline },
         });
+
+        console.log(createdEvent);
 
         for (const flow of event.flows) {
           const createdFlow = await this.prisma.flow.create({
@@ -130,11 +125,10 @@ export class EventZipProcessor extends WorkerHost {
                 const stream = await zip.entryData(media.entryName);
 
                 const { filename, preview } =
-                  await this.mediaService.uploadFile(
-                    createdMember.id,
-                    order,
-                    {buffer: new Buffer(stream.buffer), originalname: media.filename},
-                  );
+                  await this.mediaService.uploadFile(createdMember.id, order, {
+                    buffer: new Buffer(stream.buffer),
+                    originalname: media.filename,
+                  });
 
                 await this.prisma.media.create({
                   data: {

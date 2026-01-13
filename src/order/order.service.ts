@@ -12,6 +12,7 @@ import {
   OrderMedia,
   OrderStatus,
   Prisma,
+  Speech,
 } from '@prisma/client';
 import { OrdersRdo } from './rdo/orders.rdo';
 import { fillDto } from '../../common/utils/fillDto';
@@ -24,7 +25,7 @@ import { StorageType } from 'src/storage/storage.interface';
 export class OrderService {
   private readonly logger: Logger = new Logger();
 
-  constructor(private readonly prisma: PrismaService, private readonly storageService: StorageService) {}
+  constructor(private readonly prisma: PrismaService, private readonly storageService: StorageService) { }
 
   async getOrder(
     id: string,
@@ -34,16 +35,41 @@ export class OrderService {
     const order = await this.prisma.order.findUnique({
       where: { id, ...(!isAdmin && { payment: { userId } }) },
       include: {
-        orderMedia: {
-          include: {
-            media: true,
+                 orderMedia: {
+            include: {
+              media: {
+                include: {
+                  member: {
+                    select: {
+                      speech: {
+                        select: {
+                          flow: {
+                            select: {
+                              packPhotosPrice: true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                },
+              },
+            },
           },
-        },
-        members: {
-          include: {
-            media: true,
+          members: {
+            include: {
+              media: true,
+              speech: {
+                select: {
+                  flow: {
+                    select: {
+                      packPhotosPrice: true
+                    }
+                  }
+                }
+              }
+            },
           },
-        },
         payment: {
           select: {
             amount: true,
@@ -86,12 +112,37 @@ export class OrderService {
         include: {
           orderMedia: {
             include: {
-              media: true,
+              media: {
+                include: {
+                  member: {
+                    select: {
+                      speech: {
+                        select: {
+                          flow: {
+                            select: {
+                              packPhotosPrice: true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                },
+              },
             },
           },
           members: {
             include: {
               media: true,
+              speech: {
+                select: {
+                  flow: {
+                    select: {
+                      packPhotosPrice: true
+                    }
+                  }
+                }
+              }
             },
           },
           payment: {
@@ -119,16 +170,41 @@ export class OrderService {
     const order = await this.prisma.order.findUnique({
       where: { id, payment: { userId } },
       include: {
-        orderMedia: {
-          include: {
-            media: true,
+                 orderMedia: {
+            include: {
+              media: {
+                include: {
+                  member: {
+                    select: {
+                      speech: {
+                        select: {
+                          flow: {
+                            select: {
+                              packPhotosPrice: true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                },
+              },
+            },
           },
-        },
-        members: {
-          include: {
-            media: true,
+          members: {
+            include: {
+              media: true,
+              speech: {
+                select: {
+                  flow: {
+                    select: {
+                      packPhotosPrice: true
+                    }
+                  }
+                }
+              }
+            },
           },
-        },
         payment: {
           select: {
             amount: true,
@@ -205,8 +281,8 @@ export class OrderService {
 
   private async flatOrder(
     order: Order & {
-      orderMedia: Array<OrderMedia & { media: Media }>;
-      members: Array<Member & { media: Media[] }>;
+      orderMedia: Array<OrderMedia & { media: Media & {member: { speech: { flow: { singlePhotoPrice: number }, }} } }>;
+      members: Array<Member & { speech: { flow: { packPhotosPrice: number }, }, media: Media[] }>;
       payment: { amount: number };
     },
     hasAccess: boolean,
@@ -216,11 +292,11 @@ export class OrderService {
       amount: order.payment.amount,
       members: await Promise.all(order.members.map(async (member) => ({
         id: member.id,
-        media:  await Promise.all(member.media.map(async (media) => ({
+        media: await Promise.all(member.media.map(async (media) => ({
           id: media.id,
-          fullVersion: hasAccess && await this.storageService.getPresignedUrl(media.filename, {folder: `/original/${media.memberId}`, storageType: StorageType.S3}),
+          fullVersion: hasAccess && await this.storageService.getPresignedUrl(media.filename, { folder: `/original/${media.memberId}`, storageType: StorageType.S3 }),
           preview: media.preview,
-          price: media.price,
+          price: member.speech.flow.packPhotosPrice,
           order: media.order,
         }))),
       }))),
@@ -229,10 +305,10 @@ export class OrderService {
         id: orderMedia.id,
         media: {
           id: orderMedia.media.id,
-          fullVersion: hasAccess && await this.storageService.getPresignedUrl(orderMedia.media.filename, {folder: `/original/${orderMedia.media.memberId}`, storageType: StorageType.S3}),
+          fullVersion: hasAccess && await this.storageService.getPresignedUrl(orderMedia.media.filename, { folder: `/original/${orderMedia.media.memberId}`, storageType: StorageType.S3 }),
           preview: orderMedia.media.preview,
           order: orderMedia.media.order,
-          price: orderMedia.media.price,
+          price: orderMedia.media.member.speech.flow.singlePhotoPrice,
         },
         processedFullVersion: hasAccess
           ? orderMedia.processedFullVersion

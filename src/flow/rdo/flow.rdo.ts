@@ -3,7 +3,9 @@ import { Expose, Type } from 'class-transformer';
 import {
   IsArray,
   IsDateString,
+  IsInt,
   IsString,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { SpeechRdo } from 'src/speech/rdo/speech.rdo';
@@ -28,6 +30,18 @@ export class FlowRdo {
   @IsDateString()
   @Expose()
   to: Date;
+
+  @ApiProperty({ title: 'Multiple photos price', example: 500 })
+  @IsInt()
+  @Min(501)
+  @Expose()
+  packPhotosPrice: number;
+
+  @ApiProperty({ title: 'Single photos price', example: 500 })
+  @IsInt()
+  @Min(501)
+  @Expose()
+  singlePhotoPrice: number;
 
   @ApiProperty({ type: [SpeechRdo], title: 'Speeches attached to this flow' })
   @IsArray()

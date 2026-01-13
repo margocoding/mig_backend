@@ -31,11 +31,11 @@ export class EventService {
     return fillDto(EventRdo, event);
   }
 
-  async processZip(zipPath: string): Promise<SuccessRdo> {
+  async processZip(zipPath: string, orderDeadline?: Date): Promise<SuccessRdo> {
     try {
       await this.zipQueue.add(
         'process-zip',
-        { zipPath },
+        { zipPath, orderDeadline },
         {
           attempts: 3,
           backoff: {
@@ -46,6 +46,7 @@ export class EventService {
           removeOnFail: false,
         },
       );
+
 
       return fillDto(SuccessRdo, {
         success: true,
