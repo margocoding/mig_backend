@@ -68,7 +68,6 @@ export class MediaService {
 
   async addMedia(
     memberId: string,
-    price: number,
     file: Express.Multer.File,
   ): Promise<MediaRdo> {
     try {
@@ -84,7 +83,6 @@ export class MediaService {
         data: {
           preview: fileData.preview,
           filename: fileData.filename,
-          price,
           memberId,
           order: (lastMedia?.order || 0) + 1,
         },

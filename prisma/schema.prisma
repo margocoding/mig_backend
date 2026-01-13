@@ -6,11 +6,11 @@
 
 generator client {
   provider = "prisma-client-js"
+  engineType = "client"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 enum PaymentStatus {
@@ -40,11 +40,10 @@ model User {
 }
 
 model Media {
-  id          String @id @default(cuid())
-  filename    String
-  preview     String
-  order       Int
-  price       Int    @default(400)
+  id       String @id @default(cuid())
+  filename String
+  preview  String
+  order    Int
 
   member     Member       @relation(fields: [memberId], references: [id])
   memberId   String
@@ -115,18 +114,19 @@ model Speech {
   isGroup Boolean  @default(false)
   flow    Flow     @relation(fields: [flowId], references: [id])
   flowId  String
-  price   Int      @default(2000)
 }
 
 model Flow {
-  id        String   @id @default(cuid())
-  name      String
-  from      DateTime
-  to        DateTime
-  event     Event    @relation(fields: [eventId], references: [id])
-  eventId   String
-  speeches  Speech[]
-  createdAt DateTime @default(now())
+  id               String   @id @default(cuid())
+  name             String
+  from             DateTime
+  to               DateTime
+  event            Event    @relation(fields: [eventId], references: [id])
+  eventId          String
+  singlePhotoPrice Int      @default(400)
+  packPhotosPrice  Int      @default(2000)
+  speeches         Speech[]
+  createdAt        DateTime @default(now())
 }
 
 model Event {

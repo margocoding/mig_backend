@@ -60,7 +60,15 @@ export class PaymentService {
                 ],
               },
               include: {
-                speech: true,
+                speech: {
+                  select: {
+                    flow: {
+                      select: {
+                        packPhotosPrice: true
+                      }
+                    }
+                  }
+                },
               },
             }),
           ),
@@ -90,13 +98,28 @@ export class PaymentService {
                   },
                 ],
               },
+              include: {
+                member: {
+                  select: {
+                    speech: {
+                      select: {
+                        flow: {
+                          select: {
+                            singlePhotoPrice: true
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
             }),
           ),
         )
       ).filter((item) => !!item);
 
       const mediasAmount = foundMedias.reduce(
-        (prev, acc) => prev + acc.price,
+        (prev, acc) => prev + acc.member.speech.flow.singlePhotoPrice,
         0,
       );
 
@@ -104,8 +127,8 @@ export class PaymentService {
         (prev, acc) =>
           prev +
           (foundMembers.length !== 1
-            ? acc.speech.price - 500
-            : acc.speech.price),
+            ? acc.speech.flow.packPhotosPrice - 500
+            : acc.speech.flow.packPhotosPrice),
         0,
       );
 

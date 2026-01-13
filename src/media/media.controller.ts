@@ -56,7 +56,7 @@ export class MediaController {
     @Body() dto: AddMediaDto,
     @UploadedFile() files: Express.Multer.File,
   ) {
-    return this.mediaService.addMedia(dto.memberId, dto.price, files);
+    return this.mediaService.addMedia(dto.memberId, files);
   }
 
   @ApiOperation({ summary: 'Upload processed photo' })

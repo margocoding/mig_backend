@@ -30,6 +30,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import path from 'path';
 import { diskStorage } from 'multer';
 import { fillDto } from 'common/utils/fillDto';
+import { ProcessEventZipDto } from './dto/process-event-zip.dto';
 
 @Controller('event')
 export class EventController {
@@ -93,8 +94,8 @@ export class EventController {
     }),
   )
   @Post('/process')
-  async processZip(@UploadedFile() file: Express.Multer.File): Promise<SuccessRdo> {
-    return this.eventService.processZip(file.path);
+  async processZip(@UploadedFile() file: Express.Multer.File, @Body() dto: ProcessEventZipDto): Promise<SuccessRdo> {
+    return this.eventService.processZip(file.path, dto.orderDeadline);
   }
 
   @ApiOperation({ summary: 'Delete an event' })
