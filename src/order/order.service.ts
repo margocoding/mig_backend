@@ -25,7 +25,10 @@ import { StorageType } from 'src/storage/storage.interface';
 export class OrderService {
   private readonly logger: Logger = new Logger();
 
-  constructor(private readonly prisma: PrismaService, private readonly storageService: StorageService) { }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storageService: StorageService,
+  ) {}
 
   async getOrder(
     id: string,
@@ -35,41 +38,33 @@ export class OrderService {
     const order = await this.prisma.order.findUnique({
       where: { id, ...(!isAdmin && { payment: { userId } }) },
       include: {
-                 orderMedia: {
-            include: {
-              media: {
-                include: {
-                  member: {
-                    select: {
-                      speech: {
-                        select: {
-                          flow: {
-                            select: {
-                              packPhotosPrice: true
-                            }
-                          }
-                        }
-                      }
-                    }
+        orderMedia: {
+          include: {
+            media: {
+              include: {
+                member: {
+                  select: {
+                    speech: {
+                      select: {
+                        price: true
+                      },
+                    },
                   },
                 },
               },
             },
           },
-          members: {
-            include: {
-              media: true,
-              speech: {
-                select: {
-                  flow: {
-                    select: {
-                      packPhotosPrice: true
-                    }
-                  }
-                }
-              }
+        },
+        members: {
+          include: {
+            media: true,
+            speech: {
+              select: {
+                price: true
+              },
             },
           },
+        },
         payment: {
           select: {
             amount: true,
@@ -82,7 +77,10 @@ export class OrderService {
 
     return fillDto(
       OrderRdo,
-      await this.flatOrder(order, isAdmin || order.status === OrderStatus.APPROVED),
+      await this.flatOrder(
+        order,
+        isAdmin || order.status === OrderStatus.APPROVED,
+      ),
     );
   }
 
@@ -118,14 +116,10 @@ export class OrderService {
                     select: {
                       speech: {
                         select: {
-                          flow: {
-                            select: {
-                              packPhotosPrice: true
-                            }
-                          }
-                        }
-                      }
-                    }
+                          price: true
+                        },
+                      },
+                    },
                   },
                 },
               },
@@ -136,13 +130,9 @@ export class OrderService {
               media: true,
               speech: {
                 select: {
-                  flow: {
-                    select: {
-                      packPhotosPrice: true
-                    }
-                  }
-                }
-              }
+                  price: true
+                },
+              },
             },
           },
           payment: {
@@ -159,9 +149,12 @@ export class OrderService {
     ]);
 
     return fillDto(OrdersRdo, {
-      orders: await Promise.all(orders.map(async (order) =>
-        await this.flatOrder(order, order.status === OrderStatus.APPROVED),
-      )),
+      orders: await Promise.all(
+        orders.map(
+          async (order) =>
+            await this.flatOrder(order, order.status === OrderStatus.APPROVED),
+        ),
+      ),
       total,
     });
   }
@@ -170,41 +163,33 @@ export class OrderService {
     const order = await this.prisma.order.findUnique({
       where: { id, payment: { userId } },
       include: {
-                 orderMedia: {
-            include: {
-              media: {
-                include: {
-                  member: {
-                    select: {
-                      speech: {
-                        select: {
-                          flow: {
-                            select: {
-                              packPhotosPrice: true
-                            }
-                          }
-                        }
-                      }
-                    }
+        orderMedia: {
+          include: {
+            media: {
+              include: {
+                member: {
+                  select: {
+                    speech: {
+                      select: {
+                        price: true
+                      },
+                    },
                   },
                 },
               },
             },
           },
-          members: {
-            include: {
-              media: true,
-              speech: {
-                select: {
-                  flow: {
-                    select: {
-                      packPhotosPrice: true
-                    }
-                  }
-                }
-              }
+        },
+        members: {
+          include: {
+            media: true,
+            speech: {
+              select: {
+                price: true
+              },
             },
           },
+        },
         payment: {
           select: {
             amount: true,
@@ -281,8 +266,14 @@ export class OrderService {
 
   private async flatOrder(
     order: Order & {
-      orderMedia: Array<OrderMedia & { media: Media & {member: { speech: { flow: { singlePhotoPrice: number }, }} } }>;
-      members: Array<Member & { speech: { flow: { packPhotosPrice: number }, }, media: Media[] }>;
+      orderMedia: Array<
+        OrderMedia & {
+          media: Media & { member: { speech: { singlePhotoPrice: number } } };
+        }
+      >;
+      members: Array<
+        Member & { speech: { price: number }; media: Media[] }
+      >;
       payment: { amount: number };
     },
     hasAccess: boolean,
@@ -290,32 +281,51 @@ export class OrderService {
     return {
       ...order,
       amount: order.payment.amount,
-      members: await Promise.all(order.members.map(async (member) => ({
-        id: member.id,
-        media: await Promise.all(member.media.map(async (media) => ({
-          id: media.id,
-          fullVersion: hasAccess && await this.storageService.getPresignedUrl(media.filename, { folder: `/original/${media.memberId}`, storageType: StorageType.S3 }),
-          preview: media.preview,
-          price: member.speech.flow.packPhotosPrice,
-          order: media.order,
-        }))),
-      }))),
+      members: await Promise.all(
+        order.members.map(async (member) => ({
+          id: member.id,
+          media: await Promise.all(
+            member.media.map(async (media) => ({
+              id: media.id,
+              fullVersion:
+                hasAccess &&
+                (await this.storageService.getPresignedUrl(media.filename, {
+                  folder: `/original/${media.memberId}`,
+                  storageType: StorageType.S3,
+                })),
+              preview: media.preview,
+              price: member.speech.price,
+              order: media.order,
+            })),
+          ),
+        })),
+      ),
 
-      orderMedia: await Promise.all(order.orderMedia.map(async (orderMedia) => ({
-        id: orderMedia.id,
-        media: {
-          id: orderMedia.media.id,
-          fullVersion: hasAccess && await this.storageService.getPresignedUrl(orderMedia.media.filename, { folder: `/original/${orderMedia.media.memberId}`, storageType: StorageType.S3 }),
-          preview: orderMedia.media.preview,
-          order: orderMedia.media.order,
-          price: orderMedia.media.member.speech.flow.singlePhotoPrice,
-        },
-        processedFullVersion: hasAccess
-          ? orderMedia.processedFullVersion
-          : null,
-        processedPreview: hasAccess ? orderMedia.processedPreview : null,
-        displayOrder: orderMedia.displayOrder,
-      }))),
+      orderMedia: await Promise.all(
+        order.orderMedia.map(async (orderMedia) => ({
+          id: orderMedia.id,
+          media: {
+            id: orderMedia.media.id,
+            fullVersion:
+              hasAccess &&
+              (await this.storageService.getPresignedUrl(
+                orderMedia.media.filename,
+                {
+                  folder: `/original/${orderMedia.media.memberId}`,
+                  storageType: StorageType.S3,
+                },
+              )),
+            preview: orderMedia.media.preview,
+            order: orderMedia.media.order,
+            price: orderMedia.media.member.speech.singlePhotoPrice,
+          },
+          processedFullVersion: hasAccess
+            ? orderMedia.processedFullVersion
+            : null,
+          processedPreview: hasAccess ? orderMedia.processedPreview : null,
+          displayOrder: orderMedia.displayOrder,
+        })),
+      ),
     };
   }
 }

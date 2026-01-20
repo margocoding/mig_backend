@@ -5,7 +5,7 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider     = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
@@ -108,25 +108,25 @@ model Member {
 }
 
 model Speech {
-  id      String   @id @default(cuid())
-  name    String?
-  members Member[]
-  isGroup Boolean  @default(false)
-  flow    Flow     @relation(fields: [flowId], references: [id])
-  flowId  String
+  id               String   @id @default(cuid())
+  name             String?
+  singlePhotoPrice Int      @default(400)
+  price            Int      @default(2000)
+  members          Member[]
+  isGroup          Boolean  @default(false)
+  flow             Flow     @relation(fields: [flowId], references: [id])
+  flowId           String
 }
 
 model Flow {
-  id               String   @id @default(cuid())
-  name             String
-  from             DateTime
-  to               DateTime
-  event            Event    @relation(fields: [eventId], references: [id])
-  eventId          String
-  singlePhotoPrice Int      @default(400)
-  packPhotosPrice  Int      @default(2000)
-  speeches         Speech[]
-  createdAt        DateTime @default(now())
+  id        String   @id @default(cuid())
+  name      String
+  from      DateTime
+  to        DateTime
+  event     Event    @relation(fields: [eventId], references: [id])
+  eventId   String
+  speeches  Speech[]
+  createdAt DateTime @default(now())
 }
 
 model Event {

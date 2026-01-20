@@ -5,6 +5,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { MemberRdo } from 'src/member/rdo/member.rdo';
@@ -25,6 +26,12 @@ export class SpeechRdo {
   @IsString()
   @Expose()
   flowId: string;
+
+  @ApiProperty({ title: 'Single photos price', example: 500 })
+  @IsInt()
+  @Min(501)
+  @Expose()
+  singlePhotoPrice: number;
 
   @ApiProperty({ title: 'Price', example: 2000 })
   @IsInt()

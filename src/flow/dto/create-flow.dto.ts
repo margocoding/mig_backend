@@ -15,20 +15,6 @@ export class CreateFlowDto {
   @IsDateString()
   to: string;
 
-  @ApiPropertyOptional({ title: 'Multiple photos price', example: 500 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(501)
-  packPhotosPrice: number;
-
-  @ApiPropertyOptional({ title: 'Single photos price', example: 500 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(501)
-  singlePhotoPrice: number;
-
   @ApiProperty({ title: 'Event id', example: 'fgskdfjgkls2134gass' })
   @IsString()
   eventId: string;

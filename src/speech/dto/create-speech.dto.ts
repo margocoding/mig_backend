@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateSpeechDto {
   @ApiPropertyOptional({ title: 'Name', example: 'The last speech' })
@@ -15,6 +16,13 @@ export class CreateSpeechDto {
   @IsOptional()
   @IsInt()
   price: number;
+
+  @ApiPropertyOptional({ title: 'Single photos price', example: 500 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(501)
+  singlePhotoPrice: number;
 
   @ApiProperty({ title: 'Flow ID', example: 'dfjaskfl3424lfa34' })
   @IsString()
