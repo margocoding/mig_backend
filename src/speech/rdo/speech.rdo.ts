@@ -29,12 +29,12 @@ export class SpeechRdo {
 
   @ApiProperty({ title: 'Single photos price', example: 500 })
   @IsInt()
-  @Min(501)
   @Expose()
   singlePhotoPrice: number;
 
   @ApiProperty({ title: 'Price', example: 2000 })
   @IsInt()
+  @Min(501)
   @Expose()
   price: number;
 
