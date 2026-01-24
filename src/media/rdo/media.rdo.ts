@@ -16,11 +16,6 @@ export class MediaRdo {
   @Expose()
   preview: string;
 
-  @ApiProperty({ title: 'Price', example: 500 })
-  @IsInt()
-  @Expose()
-  price: number;
-
   @ApiProperty({
     title: 'Preview',
     example: 'https://cloud.yandex.ru/original/123.png',
