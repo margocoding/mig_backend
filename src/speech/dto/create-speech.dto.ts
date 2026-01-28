@@ -15,13 +15,13 @@ export class CreateSpeechDto {
   @ApiPropertyOptional({ title: 'Price', example: 5000 })
   @IsOptional()
   @IsInt()
+  @Min(501)
   price: number;
 
   @ApiPropertyOptional({ title: 'Single photos price', example: 500 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(501)
   singlePhotoPrice: number;
 
   @ApiProperty({ title: 'Flow ID', example: 'dfjaskfl3424lfa34' })
