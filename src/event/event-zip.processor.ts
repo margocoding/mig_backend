@@ -5,6 +5,7 @@ import fs from 'fs';
 import StreamZip from 'node-stream-zip';
 import { PrismaService } from 'prisma/prisma.service';
 import { MediaService } from 'src/media/media.service';
+import yauzl from 'yauzl'
 
 @Processor('zip-processing')
 @Injectable()
@@ -16,83 +17,111 @@ export class EventZipProcessor extends WorkerHost {
     super();
   }
 
+  private async openZip(path: string): Promise<yauzl.ZipFile> {
+  return new Promise((resolve, reject) => {
+    yauzl.open(path, { lazyEntries: true }, (err, zip) => {
+      if (err || !zip) reject(err);
+      else resolve(zip);
+    });
+  });
+}
+
   async process(job: Job<{ zipPath: string; orderDeadline?: Date }>) {
     const { zipPath, orderDeadline } = job.data;
 
-    const zip = new StreamZip.async({ file: zipPath });
+    const zip = await this.openZip(zipPath);
 
-    try {
-      const entries = await zip.entries();
+    type MediaItem = {
+      entry: yauzl.Entry;
+      filename: string;
+    };
 
-      type Structure = {
-        events: {
+    type Structure = {
+      events: {
+        name: string;
+        orderDeadline?: Date;
+        flows: {
           name: string;
-          orderDeadline?: Date,
-          flows: {
+          speeches: {
             name: string;
-            speeches: {
+            members: {
               name: string;
-              members: {
-                name: string;
-                media: {
-                  entryName: string;
-                  filename: string;
-                }[];
-              }[];
+              media: MediaItem[];
             }[];
           }[];
         }[];
-      };
+      }[];
+    };
 
-      const structure: Structure = { events: [] };
+    const structure: Structure = { events: [] };
 
-      for (const entryName of Object.keys(entries)) {
-        const entry = entries[entryName];
-        if (entry.isDirectory) continue;
+    const readEntries = async (): Promise<void> =>
+      new Promise((resolve, reject) => {
+        zip.readEntry();
 
-        const parts = entryName.split('/');
-        if (parts.length !== 5) {
-          console.warn(`⚠️ Skipping invalid path: ${entryName}`);
-          continue;
-        }
+        zip.on('entry', (entry) => {
+          if (/\/$/.test(entry.fileName)) {
+            zip.readEntry();
+            return;
+          }
 
-        const [eventName, flowName, speechName, memberName, filename] = parts;
+          const parts = entry.fileName.split('/');
+          if (parts.length !== 5) {
+            console.warn(`⚠️ Skipping invalid path: ${entry.fileName}`);
+            zip.readEntry();
+            return;
+          }
 
-        let event = structure.events.find((e) => e.name === eventName);
-        if (!event) {
-          event = { name: eventName, flows: [], orderDeadline };
-          structure.events.push(event);
-        }
+          const [eventName, flowName, speechName, memberName, filename] = parts;
 
-        let flow = event.flows.find((f) => f.name === flowName);
-        if (!flow) {
-          flow = { name: flowName, speeches: [] };
-          event.flows.push(flow);
-        }
+          let event = structure.events.find((e) => e.name === eventName);
+          if (!event) {
+            event = { name: eventName, flows: [], orderDeadline };
+            structure.events.push(event);
+          }
 
-        let speech = flow.speeches.find((s) => s.name === speechName);
-        if (!speech) {
-          speech = { name: speechName, members: [] };
-          flow.speeches.push(speech);
-        }
+          let flow = event.flows.find((f) => f.name === flowName);
+          if (!flow) {
+            flow = { name: flowName, speeches: [] };
+            event.flows.push(flow);
+          }
 
-        let member = speech.members.find((m) => m.name === memberName);
-        if (!member) {
-          member = { name: memberName, media: [] };
-          speech.members.push(member);
-        }
+          let speech = flow.speeches.find((s) => s.name === speechName);
+          if (!speech) {
+            speech = { name: speechName, members: [] };
+            flow.speeches.push(speech);
+          }
 
-        member.media.push({ entryName, filename });
-      }
+          let member = speech.members.find((m) => m.name === memberName);
+          if (!member) {
+            member = { name: memberName, media: [] };
+            speech.members.push(member);
+          }
+
+          member.media.push({ entry, filename });
+
+          zip.readEntry();
+        });
+
+        zip.on('end', resolve);
+        zip.on('error', reject);
+      });
+
+    try {
+      await readEntries();
+
+      // ↓↓↓ дальше ТВОЯ логика вообще без изменений ↓↓↓
 
       for (const event of structure.events) {
         console.log(`🎫 Event: ${event.name}`);
 
         const createdEvent = await this.prisma.event.create({
-          data: { name: event.name, date: new Date(), orderDeadline: event.orderDeadline },
+          data: {
+            name: event.name,
+            date: new Date(),
+            orderDeadline: event.orderDeadline,
+          },
         });
-
-        console.log(createdEvent);
 
         for (const flow of event.flows) {
           const createdFlow = await this.prisma.flow.create({
@@ -122,11 +151,18 @@ export class EventZipProcessor extends WorkerHost {
               for (const media of member.media) {
                 console.log(`⬆️ Upload: ${media.filename}`);
 
-                const stream = await zip.entryData(media.entryName);
+                const buffer = await new Promise<Buffer>((resolve, reject) => {
+                  zip.openReadStream(media.entry, (err, stream) => {
+                    if (err || !stream) return reject(err);
+                    const chunks: Buffer[] = [];
+                    stream.on('data', (c) => chunks.push(c));
+                    stream.on('end', () => resolve(Buffer.concat(chunks)));
+                  });
+                });
 
                 const { filename, preview } =
                   await this.mediaService.uploadFile(createdMember.id, order, {
-                    buffer: new Buffer(stream.buffer),
+                    buffer,
                     originalname: media.filename,
                   });
 
@@ -145,11 +181,8 @@ export class EventZipProcessor extends WorkerHost {
           }
         }
       }
-    } catch (e) {
-      console.error('❌ ZIP processing failed', e);
-      throw e;
     } finally {
-      await zip.close();
+      zip.close();
       await fs.promises.unlink(zipPath).catch(() => {});
       console.log('🧹 ZIP removed');
     }
