@@ -8,7 +8,6 @@ import {
   Post,
   Put,
   Query,
-  UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
@@ -29,7 +28,6 @@ import { AdminGuard } from '../user/admin.guard';
 import { FileInterceptor } from '@nestjs/platform-express';
 import path from 'path';
 import { diskStorage } from 'multer';
-import { fillDto } from 'common/utils/fillDto';
 import { ProcessEventZipDto } from './dto/process-event-zip.dto';
 
 @Controller('event')
@@ -94,8 +92,16 @@ export class EventController {
     }),
   )
   @Post('/process')
-  async processZip(@UploadedFile() file: Express.Multer.File, @Body() dto: ProcessEventZipDto): Promise<SuccessRdo> {
-    return this.eventService.processZip(file.path, dto.orderDeadline);
+  async processZip(@Body() dto: ProcessEventZipDto): Promise<SuccessRdo> {
+    return this.eventService.processZip(dto.filename, dto.orderDeadline);
+  }
+
+  @ApiOperation({ summary: 'Get presigned url for uploading an archive' })
+  @ApiOkResponse({ example: { url: 'some-url' } })
+  @UseGuards(AuthJwtGuard, AdminGuard)
+  @Get('/zip/presigned-url')
+  getUploadZipPresignedUrl(): Promise<{ url: string; filename: string }> {
+    return this.eventService.getUploadZipPresignedUrl();
   }
 
   @ApiOperation({ summary: 'Delete an event' })

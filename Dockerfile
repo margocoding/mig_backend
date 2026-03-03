@@ -28,7 +28,6 @@ RUN yarn install --production
 
 COPY . .
 
-# ✅ Добавить Prisma клиент
 COPY --from=development /usr/src/app/node_modules/.prisma /usr/src/app/node_modules/.prisma
 COPY --from=development /usr/src/app/node_modules/@prisma /usr/src/app/node_modules/@prisma
 

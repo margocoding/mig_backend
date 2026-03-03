@@ -101,6 +101,7 @@ model Order {
 model Member {
   id       String  @id @default(cuid())
   media    Media[]
+  name     String?
   speech   Speech  @relation(fields: [speechId], references: [id], onDelete: Cascade)
   speechId String
   orders   Order[]

@@ -14,13 +14,16 @@ import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { EventRdo } from './rdo/event.rdo';
 import { EventsRdo } from './rdo/events.rdo';
+import { StorageService } from '../storage/storage.service';
+import { randomUUID } from 'node:crypto';
 
 @Injectable()
 export class EventService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mediaService: MediaService,
-    @InjectQueue('zip-processing') private readonly zipQueue: Queue
+    private readonly storageService: StorageService,
+    @InjectQueue('zip-processing') private readonly zipQueue: Queue,
   ) {}
 
   async createEvent(dto: CreateEventDto): Promise<EventRdo> {
@@ -31,11 +34,15 @@ export class EventService {
     return fillDto(EventRdo, event);
   }
 
-  async processZip(zipPath: string, orderDeadline?: Date): Promise<SuccessRdo> {
+  async processZip(
+    filename: string,
+    orderDeadline?: Date,
+  ): Promise<SuccessRdo> {
     try {
+      console.log('Before adding job');
       await this.zipQueue.add(
         'process-zip',
-        { zipPath, orderDeadline },
+        { filename, orderDeadline },
         {
           attempts: 3,
           backoff: {
@@ -46,7 +53,7 @@ export class EventService {
           removeOnFail: false,
         },
       );
-
+      console.log('After adding job');
 
       return fillDto(SuccessRdo, {
         success: true,
@@ -56,6 +63,16 @@ export class EventService {
       console.error(e);
       throw new BadRequestException('Bad file');
     }
+  }
+
+  async getUploadZipPresignedUrl(): Promise<{ url: string; filename: string }> {
+    const filename = randomUUID() + '.zip';
+    const url = await this.storageService.getPresignedUrlForUploading(
+      'archive',
+      filename,
+    );
+
+    return { url, filename };
   }
 
   async updateEvent(id: string, dto: UpdateEventDto): Promise<EventRdo> {

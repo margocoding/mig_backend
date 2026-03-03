@@ -1,15 +1,23 @@
-import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import archiver from 'archiver';
 import { PassThrough, Readable } from 'stream';
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { NodeHttpHandler } from '@aws-sdk/node-http-handler';
+
 import {
   S3Config,
   StorageConfig,
   StorageOptions,
-  StorageType
+  StorageType,
 } from './storage.interface';
+import * as https from 'node:https';
 
 @Injectable()
 export class StorageService {
@@ -59,6 +67,11 @@ export class StorageService {
         secretAccessKey: privateConfig.secretAccessKey,
       },
       forcePathStyle: true,
+      requestHandler: new NodeHttpHandler({
+        httpsAgent: new https.Agent({ family: 4 }), // force IPv4
+        connectionTimeout: 30000, // 30 секунд
+        socketTimeout: 30000,
+      }),
     });
   }
 
@@ -87,12 +100,11 @@ export class StorageService {
 
   async getFolderAsZip(
     folder: string,
-    storageType: StorageType = StorageType.S3
+    storageType: StorageType = StorageType.S3,
   ): Promise<NodeJS.ReadableStream> {
-
     const config = this.getConfig(storageType) as S3Config;
 
-    const prefix = folder.replace(/^\/+|\/+$/g, '') + '/'
+    const prefix = folder.replace(/^\/+|\/+$/g, '') + '/';
     console.log(prefix);
 
     const list = await this.s3Client.send(
@@ -130,26 +142,48 @@ export class StorageService {
     return zipStream;
   }
 
-  private getFullPath(filename: string, folder?: string): string {
-    if (!folder) return filename;
-    const cleanFolder = folder.replace(/^\/+|\/+$/g, '');
-    return `${cleanFolder}/${filename}`;
+  async getPresignedUrlForUploading(folder: string, filename: string) {
+    const config = this.getConfig(StorageType.S3) as S3Config;
+    const command = new PutObjectCommand({
+      Bucket: config.bucketName,
+      Key: folder + '/' + filename,
+    });
+
+    const url = await getSignedUrl(this.s3Client, command, {
+      expiresIn: 1 * 60 * 60,
+    });
+
+    return url;
   }
 
-  private validateConfig(config: S3Config): void {
-    if (!config.bucketName || !config.accessKeyId || !config.secretAccessKey) {
-      throw new Error('S3 configuration is incomplete');
-    }
-  }
+  async getStreamFile(folder: string, filename: string): Promise<Readable> {
+    const config = this.getConfig(StorageType.S3) as S3Config;
 
-  private getConfig(storageType: StorageType = StorageType.S3): StorageConfig {
-    const config = this.configs.get(storageType);
-    if (!config) {
-      throw new Error(
-        `No configuration found for storage type: ${storageType}`,
-      );
+    const command = new GetObjectCommand({
+      Bucket: config.bucketName,
+      Key: folder + '/' + filename,
+    });
+    const response = await this.s3Client.send(command);
+
+    if (!response.Body) throw new NotFoundException('File not found');
+
+    console.log(response.Body instanceof Readable);
+
+    if ((response.Body as any)?.getReader) {
+      const reader = (response.Body as any).getReader();
+      const chunks: Buffer[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(Buffer.from(value));
+      }
+
+      return Readable.from(chunks);
     }
-    return config;
+
+    // Уже Node stream
+    return response.Body as Readable;
   }
 
   async uploadFile(
@@ -176,6 +210,8 @@ export class StorageService {
 
       return this.getFileUrl(filename, options);
     } catch (error) {
+      console.log(filename);
+      console.log(error);
       throw new Error(
         `Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
@@ -192,5 +228,45 @@ export class StorageService {
     const s3Config = config as S3Config;
     const fullPath = this.getFullPath(filename, folder);
     return `https://${s3Config.bucketName}.storage.yandexcloud.net/${fullPath}`;
+  }
+
+  private async s3ToNodeStream(responseBody: any): Promise<Readable> {
+    if ((responseBody as ReadableStream)?.getReader) {
+      const reader = (responseBody as ReadableStream).getReader();
+      const chunks: Buffer[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(Buffer.from(value));
+      }
+
+      return Readable.from(chunks);
+    }
+
+    // Уже Node stream
+    return responseBody as Readable;
+  }
+
+  private getFullPath(filename: string, folder?: string): string {
+    if (!folder) return filename;
+    const cleanFolder = folder.replace(/^\/+|\/+$/g, '');
+    return `${cleanFolder}/${filename}`;
+  }
+
+  private validateConfig(config: S3Config): void {
+    if (!config.bucketName || !config.accessKeyId || !config.secretAccessKey) {
+      throw new Error('S3 configuration is incomplete');
+    }
+  }
+
+  private getConfig(storageType: StorageType = StorageType.S3): StorageConfig {
+    const config = this.configs.get(storageType);
+    if (!config) {
+      throw new Error(
+        `No configuration found for storage type: ${storageType}`,
+      );
+    }
+    return config;
   }
 }
