@@ -150,7 +150,7 @@ export class StorageService {
     });
 
     const url = await getSignedUrl(this.s3Client, command, {
-      expiresIn: 1 * 60 * 60,
+      expiresIn: 3 * 24 * 60 * 60,
     });
 
     return url;
