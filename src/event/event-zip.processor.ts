@@ -135,9 +135,6 @@ export class EventZipProcessor extends WorkerHost {
           flow.speeches.push(speech);
         }
 
-        /* =========================
-       MEMBER
-    ========================== */
         let member = speech.members.find((m) => m.name === memberName);
         if (!member) {
           member = await this.prisma.member.create({
@@ -150,9 +147,6 @@ export class EventZipProcessor extends WorkerHost {
           speech.members.push(member);
         }
 
-        /* =========================
-       FILE (stream → buffer)
-    ========================== */
 
         const chunks: Buffer[] = [];
 
