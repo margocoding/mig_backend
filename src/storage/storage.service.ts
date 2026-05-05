@@ -1,15 +1,18 @@
 import {
+  DeleteObjectCommand,
   GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
+import { NodeHttpHandler } from '@aws-sdk/node-http-handler';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import archiver from 'archiver';
-import { PassThrough, Readable } from 'stream';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { NodeHttpHandler } from '@aws-sdk/node-http-handler';
+import archiver from 'archiver';
+import * as https from 'node:https';
+import { PassThrough, Readable } from 'node:stream';
 
 import {
   S3Config,
@@ -17,7 +20,6 @@ import {
   StorageOptions,
   StorageType,
 } from './storage.interface';
-import * as https from 'node:https';
 
 @Injectable()
 export class StorageService {
@@ -68,8 +70,8 @@ export class StorageService {
       },
       forcePathStyle: true,
       requestHandler: new NodeHttpHandler({
-        httpsAgent: new https.Agent({ family: 4 }), // force IPv4
-        connectionTimeout: 30000, // 30 секунд
+        httpsAgent: new https.Agent({ family: 4 }),
+        connectionTimeout: 30000,
         socketTimeout: 30000,
       }),
     });
@@ -91,11 +93,7 @@ export class StorageService {
       Key: fullPath,
     });
 
-    const url = await getSignedUrl(this.s3Client, command, {
-      expiresIn,
-    });
-
-    return url;
+    return getSignedUrl(this.s3Client, command, { expiresIn });
   }
 
   async getFolderAsZip(
@@ -105,8 +103,6 @@ export class StorageService {
     const config = this.getConfig(storageType) as S3Config;
 
     const prefix = folder.replace(/^\/+|\/+$/g, '') + '/';
-    console.log(prefix);
-
     const list = await this.s3Client.send(
       new ListObjectsV2Command({
         Bucket: config.bucketName,
@@ -115,7 +111,7 @@ export class StorageService {
     );
 
     if (!list.Contents || list.Contents.length === 0) {
-      throw new Error('Папка пуста или не существует');
+      throw new Error('Folder is empty or does not exist');
     }
 
     const zipStream = new PassThrough();
@@ -132,28 +128,14 @@ export class StorageService {
         }),
       );
 
-      archive.append(fileStream.Body as Readable, {
+      archive.append(this.s3ToNodeStream(fileStream.Body), {
         name: key.replace(prefix, ''),
       });
     }
 
-    archive.finalize();
+    void archive.finalize();
 
     return zipStream;
-  }
-
-  async getPresignedUrlForUploading(folder: string, filename: string) {
-    const config = this.getConfig(StorageType.S3) as S3Config;
-    const command = new PutObjectCommand({
-      Bucket: config.bucketName,
-      Key: folder + '/' + filename,
-    });
-
-    const url = await getSignedUrl(this.s3Client, command, {
-      expiresIn: 3 * 24 * 60 * 60,
-    });
-
-    return url;
   }
 
   async getStreamFile(folder: string, filename: string): Promise<Readable> {
@@ -167,27 +149,55 @@ export class StorageService {
 
     if (!response.Body) throw new NotFoundException('File not found');
 
-    console.log(response.Body instanceof Readable);
+    return this.s3ToNodeStream(response.Body);
+  }
 
-    if ((response.Body as any)?.getReader) {
-      const reader = (response.Body as any).getReader();
-      const chunks: Buffer[] = [];
+  async getPrivateObjectStream(key: string): Promise<Readable> {
+    const config = this.getConfig(StorageType.S3) as S3Config;
+    const response = await this.s3Client.send(
+      new GetObjectCommand({
+        Bucket: config.bucketName,
+        Key: key,
+      }),
+    );
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(Buffer.from(value));
-      }
+    if (!response.Body) throw new NotFoundException('File not found');
 
-      return Readable.from(chunks);
-    }
+    return this.s3ToNodeStream(response.Body);
+  }
 
-    // Уже Node stream
-    return response.Body as Readable;
+  async uploadPrivateObjectStream(
+    key: string,
+    stream: Readable,
+    contentType?: string,
+  ): Promise<void> {
+    const config = this.getConfig(StorageType.S3) as S3Config;
+    const upload = new Upload({
+      client: this.s3Client,
+      params: {
+        Bucket: config.bucketName,
+        Key: key,
+        Body: stream,
+        ACL: 'private',
+        ContentType: contentType,
+      },
+    });
+
+    await upload.done();
+  }
+
+  async deletePrivateObject(key: string): Promise<void> {
+    const config = this.getConfig(StorageType.S3) as S3Config;
+    await this.s3Client.send(
+      new DeleteObjectCommand({
+        Bucket: config.bucketName,
+        Key: key,
+      }),
+    );
   }
 
   async uploadFile(
-    file: Buffer,
+    file: Buffer | Readable,
     filename: string,
     options: StorageOptions = {},
   ): Promise<string> {
@@ -198,15 +208,30 @@ export class StorageService {
     const fullPath = this.getFullPath(filename, folder);
 
     try {
-      const command = new PutObjectCommand({
-        Bucket: s3Config.bucketName,
-        Key: fullPath,
-        Body: file,
-        ACL: s3Config.isPublic ? 'public-read' : 'private',
-        ContentType: contentType,
-      });
+      if (file instanceof Readable) {
+        const upload = new Upload({
+          client: this.s3Client,
+          params: {
+            Bucket: s3Config.bucketName,
+            Key: fullPath,
+            Body: file,
+            ACL: s3Config.isPublic ? 'public-read' : 'private',
+            ContentType: contentType,
+          },
+        });
 
-      await this.s3Client.send(command);
+        await upload.done();
+      } else {
+        const command = new PutObjectCommand({
+          Bucket: s3Config.bucketName,
+          Key: fullPath,
+          Body: file,
+          ACL: s3Config.isPublic ? 'public-read' : 'private',
+          ContentType: contentType,
+        });
+
+        await this.s3Client.send(command);
+      }
 
       return this.getFileUrl(filename, options);
     } catch (error) {
@@ -227,24 +252,26 @@ export class StorageService {
 
     const s3Config = config as S3Config;
     const fullPath = this.getFullPath(filename, folder);
-    return `https://${s3Config.bucketName}.storage.yandexcloud.net/${fullPath}`;
+    return await Promise.resolve(
+      `https://${s3Config.bucketName}.storage.yandexcloud.net/${fullPath}`,
+    );
   }
 
-  private async s3ToNodeStream(responseBody: any): Promise<Readable> {
+  private s3ToNodeStream(responseBody: any): Readable {
     if ((responseBody as ReadableStream)?.getReader) {
-      const reader = (responseBody as ReadableStream).getReader();
-      const chunks: Buffer[] = [];
+      const reader = (responseBody as ReadableStream<Uint8Array>).getReader();
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(Buffer.from(value));
-      }
-
-      return Readable.from(chunks);
+      return Readable.from(
+        (async function* () {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            yield Buffer.from(value);
+          }
+        })(),
+      );
     }
 
-    // Уже Node stream
     return responseBody as Readable;
   }
 
@@ -252,12 +279,6 @@ export class StorageService {
     if (!folder) return filename;
     const cleanFolder = folder.replace(/^\/+|\/+$/g, '');
     return `${cleanFolder}/${filename}`;
-  }
-
-  private validateConfig(config: S3Config): void {
-    if (!config.bucketName || !config.accessKeyId || !config.secretAccessKey) {
-      throw new Error('S3 configuration is incomplete');
-    }
   }
 
   private getConfig(storageType: StorageType = StorageType.S3): StorageConfig {

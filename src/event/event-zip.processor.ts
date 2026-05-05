@@ -1,14 +1,30 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument */
 import { Injectable } from '@nestjs/common';
 import { Event, Flow, Media, Member, Speech } from '@prisma/client';
 import { Job } from 'bullmq';
+import { readFile, writeFile } from 'node:fs/promises';
+import { Readable } from 'node:stream';
 import { PrismaService } from 'prisma/prisma.service';
 import { MediaService } from 'src/media/media.service';
-import { StorageService } from '../storage/storage.service';
+import { StorageService } from 'src/storage/storage.service';
 import * as unzipper from 'unzipper';
 
-@Processor('zip-processing')
+type ProcessZipChunk = {
+  key: string;
+  offset: number;
+  size: number;
+};
+
+type ProcessZipJob = {
+  uploadId: string;
+  chunks: ProcessZipChunk[];
+  metadataPath: string;
+  orderDeadline?: string;
+};
+
 @Injectable()
+@Processor('zip-processing')
 export class EventZipProcessor extends WorkerHost {
   constructor(
     private readonly prisma: PrismaService,
@@ -18,16 +34,39 @@ export class EventZipProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<{ filename: string; orderDeadline?: Date }>) {
-    const { filename, orderDeadline } = job.data;
+  async process(job: Job<ProcessZipJob>) {
+    const { chunks, metadataPath, orderDeadline } = job.data;
 
-    const streamZip = await this.storageService.getStreamFile(
-      'archive',
-      filename,
-    );
-    const parser = streamZip.pipe(unzipper.Parse());
+    try {
+      await this.updateUploadMetadata(metadataPath, {
+        status: 'processing',
+        updatedAt: new Date().toISOString(),
+      });
 
-    // const zip = await this.openZip(zipPath);
+      await this.processZipStream(
+        this.createChunksReadStream(chunks),
+        orderDeadline ? new Date(orderDeadline) : undefined,
+      );
+
+      await this.updateUploadMetadata(metadataPath, {
+        status: 'completed',
+        updatedAt: new Date().toISOString(),
+      });
+
+      await this.deleteChunks(chunks);
+    } catch (error) {
+      await this.updateUploadMetadata(metadataPath, {
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        updatedAt: new Date().toISOString(),
+      });
+
+      throw error;
+    }
+  }
+
+  async processZipStream(streamZip: Readable, orderDeadline?: Date) {
+    const parser = streamZip.pipe(unzipper.Parse({ forceStream: true }));
 
     type Structure = {
       events: Array<
@@ -51,27 +90,28 @@ export class EventZipProcessor extends WorkerHost {
 
     const structure: Structure = { events: [] };
 
-    parser.on('entry', async (entry) => {
+    for await (const entry of parser) {
       try {
         if (entry.type !== 'File' || entry.path.startsWith('__MACOSX/')) {
           entry.autodrain();
-          return;
+          continue;
         }
 
         const filePath = entry.path;
 
         if (/\/$/.test(filePath)) {
           entry.autodrain();
-          return;
+          continue;
         }
 
         const parts = filePath.split('/');
         if (parts.length !== 5) {
-          console.warn(`⚠️ Skipping invalid path: ${entry.fileName}`);
-          return;
+          console.warn(`Skipping invalid path: ${entry.fileName}`);
+          entry.autodrain();
+          continue;
         }
 
-        const [eventName, flowName, speechName, memberName, filename] = parts;
+        const [eventName, flowName, speechName, memberName, fileName] = parts;
 
         let event = structure.events.find((e) => e.name === eventName);
         if (!event) {
@@ -98,9 +138,6 @@ export class EventZipProcessor extends WorkerHost {
           structure.events.push(event);
         }
 
-        /* =========================
-       FLOW
-    ========================== */
         let flow = event.flows.find((f) => f.name === flowName);
         if (!flow) {
           flow = await this.prisma.flow.create({
@@ -147,47 +184,12 @@ export class EventZipProcessor extends WorkerHost {
           speech.members.push(member);
         }
 
-
-        const chunks: Buffer[] = [];
-
-        for await (const chunk of entry) {
-          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-        }
-
-        const buffer = Buffer.concat(chunks);
-
-        // Защита от слишком больших файлов
-        // const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
-        // if (entry.uncompressedSize > MAX_FILE_SIZE) {
-        //   throw new Error(
-        //     `File too large: ${entry.fileName} (${entry.uncompressedSize})`,
-        //   );
-        // }
-
-        // const buffer: Buffer = await new Promise((resolve, reject) => {
-        //   zip.openReadStream(entry, (err, stream) => {
-        //     if (err || !stream) return reject(err);
-        //
-        //     const chunks: Buffer[] = [];
-        //
-        //     stream.on('data', (chunk) => {
-        //       chunks.push(chunk);
-        //     });
-        //
-        //     stream.on('end', () => {
-        //       resolve(Buffer.concat(chunks));
-        //     });
-        //
-        //     stream.on('error', reject);
-        //   });
-        // });
-
         const order = member.media.length + 1;
 
         const { filename: mediaFileName, preview } =
           await this.mediaService.uploadFile(member.id, order, {
-            buffer,
-            originalname: filename,
+            stream: entry,
+            originalname: fileName,
           });
 
         const createdMedia = await this.prisma.media.create({
@@ -201,38 +203,50 @@ export class EventZipProcessor extends WorkerHost {
 
         member.media.push(createdMedia);
       } catch (e) {
+        entry.autodrain();
         console.error(e);
-        return;
       }
-    });
-    // try {
-    //   await new Promise<void>((resolve, reject) => {
-    //     zip.readEntry();
-    //
-    //     zip.on('entry', (entry) => {
-    //       processEntry(entry)
-    //         .then(() => zip.readEntry())
-    //         .catch(reject);
-    //     });
-    //
-    //     zip.on('end', resolve);
-    //     zip.on('error', reject);
-    //   });
-    // } finally {
-    //   zip.close();
-    //   await fs.promises.unlink(zipPath).catch(() => {});
-    //   console.log('🧹 ZIP removed');
-    // }
+    }
   }
 
-  // async processFile() {}
-  //
-  // private async openZip(path: string): Promise<yauzl.ZipFile> {
-  //   return new Promise((resolve, reject) => {
-  //     yauzl.open(path, { lazyEntries: true }, (err, zip) => {
-  //       if (err || !zip) reject(err);
-  //       else resolve(zip);
-  //     });
-  //   });
-  // }
+  private async updateUploadMetadata(
+    metadataPath: string,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    const metadata = JSON.parse(await readFile(metadataPath, 'utf8')) as Record<
+      string,
+      unknown
+    >;
+
+    await writeFile(
+      metadataPath,
+      JSON.stringify({ ...metadata, ...data }, null, 2),
+    );
+  }
+
+  private createChunksReadStream(chunks: ProcessZipChunk[]): Readable {
+    const storageService = this.storageService;
+
+    return Readable.from(
+      (async function* () {
+        for (const chunk of chunks) {
+          const chunkStream = await storageService.getPrivateObjectStream(
+            chunk.key,
+          );
+
+          for await (const data of chunkStream) {
+            yield data;
+          }
+        }
+      })(),
+    );
+  }
+
+  private async deleteChunks(chunks: ProcessZipChunk[]): Promise<void> {
+    await Promise.all(
+      chunks.map((chunk) =>
+        this.storageService.deletePrivateObject(chunk.key).catch(() => {}),
+      ),
+    );
+  }
 }

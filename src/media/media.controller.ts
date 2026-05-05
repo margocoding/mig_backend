@@ -25,6 +25,16 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthJwtGuard } from 'src/auth/auth.guard';
 import { AdminGuard } from '../user/admin.guard';
 import { OrderMediaRdo } from '../order/rdo/order-media.rdo';
+import { diskStorage } from 'multer';
+import path from 'node:path';
+import { v4 as uuid } from 'uuid';
+
+const mediaUploadStorage = diskStorage({
+  destination: './common/tmp',
+  filename: (req, file, callback) => {
+    callback(null, `${uuid()}${path.extname(file.originalname)}`);
+  },
+});
 
 @ApiTags('Media')
 @Controller('/media')
@@ -48,7 +58,10 @@ export class MediaController {
     example: new NotFoundException('Member not found').getResponse(),
   })
   @UseInterceptors(
-    FileInterceptor('media', { limits: { fileSize: 50 * 1024 * 1024 } }),
+    FileInterceptor('media', {
+      limits: { fileSize: 50 * 1024 * 1024 },
+      storage: mediaUploadStorage,
+    }),
   )
   @UseGuards(AuthJwtGuard, AdminGuard)
   @Post('/')
@@ -62,7 +75,10 @@ export class MediaController {
   @ApiOperation({ summary: 'Upload processed photo' })
   @ApiOkResponse({ type: OrderMediaRdo })
   @UseInterceptors(
-    FileInterceptor('media', { limits: { fileSize: 50 * 1024 * 1024 } }),
+    FileInterceptor('media', {
+      limits: { fileSize: 50 * 1024 * 1024 },
+      storage: mediaUploadStorage,
+    }),
   )
   @UseGuards(AuthJwtGuard, AdminGuard)
   @Post('/order-media/:mediaId/:orderId')

@@ -1,0 +1,42 @@
+{
+  "uploadId": "273d4915-d44e-43e1-a503-f6bd0f1844ab",
+  "filename": "mini-test.zip",
+  "offset": 271745748,
+  "size": 271745748,
+  "status": "processing",
+  "chunks": [
+    {
+      "key": "archive-chunks/273d4915-d44e-43e1-a503-f6bd0f1844ab/000000000000.bin",
+      "offset": 0,
+      "size": 52428800
+    },
+    {
+      "key": "archive-chunks/273d4915-d44e-43e1-a503-f6bd0f1844ab/000000000001.bin",
+      "offset": 52428800,
+      "size": 52428800
+    },
+    {
+      "key": "archive-chunks/273d4915-d44e-43e1-a503-f6bd0f1844ab/000000000002.bin",
+      "offset": 104857600,
+      "size": 52428800
+    },
+    {
+      "key": "archive-chunks/273d4915-d44e-43e1-a503-f6bd0f1844ab/000000000003.bin",
+      "offset": 157286400,
+      "size": 52428800
+    },
+    {
+      "key": "archive-chunks/273d4915-d44e-43e1-a503-f6bd0f1844ab/000000000004.bin",
+      "offset": 209715200,
+      "size": 52428800
+    },
+    {
+      "key": "archive-chunks/273d4915-d44e-43e1-a503-f6bd0f1844ab/000000000005.bin",
+      "offset": 262144000,
+      "size": 9601748
+    }
+  ],
+  "createdAt": "2026-05-05T18:50:35.224Z",
+  "updatedAt": "2026-05-05T18:57:53.950Z",
+  "jobId": "1"
+}

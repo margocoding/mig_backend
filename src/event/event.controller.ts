@@ -1,20 +1,24 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
+  Headers,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
 import { EventService } from './event.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import {
   ApiNotFoundResponse,
+  ApiConsumes,
   ApiOkResponse,
   ApiOperation,
 } from '@nestjs/swagger';
@@ -25,10 +29,8 @@ import { UpdateEventDto } from './dto/update-event.dto';
 import { SuccessRdo } from 'common/rdo/success.rdo';
 import { AuthJwtGuard } from 'src/auth/auth.guard';
 import { AdminGuard } from '../user/admin.guard';
-import { FileInterceptor } from '@nestjs/platform-express';
-import path from 'path';
-import { diskStorage } from 'multer';
-import { ProcessEventZipDto } from './dto/process-event-zip.dto';
+import { InitEventZipUploadDto } from './dto/process-event-zip.dto';
+import type { Request } from 'express';
 
 @Controller('event')
 export class EventController {
@@ -40,6 +42,85 @@ export class EventController {
   @Post('/')
   createEvent(@Body() dto: CreateEventDto): Promise<EventRdo> {
     return this.eventService.createEvent(dto);
+  }
+
+  @ApiOperation({ summary: 'Initialize resumable event zip upload' })
+  @ApiOkResponse({
+    example: {
+      uploadId: 'uuid',
+      offset: 0,
+      size: 214748364800,
+      status: 'uploading',
+    },
+  })
+  @UseGuards(AuthJwtGuard, AdminGuard)
+  @Post('/process/upload')
+  initZipUpload(@Body() dto: InitEventZipUploadDto) {
+    return this.eventService.initZipUpload(dto);
+  }
+
+  @ApiOperation({ summary: 'Get resumable event zip upload status' })
+  @ApiOkResponse({
+    example: {
+      uploadId: 'uuid',
+      offset: 104857600,
+      size: 214748364800,
+      status: 'uploading',
+    },
+  })
+  @UseGuards(AuthJwtGuard, AdminGuard)
+  @Get('/process/upload/:uploadId')
+  getZipUpload(@Param('uploadId') uploadId: string) {
+    return this.eventService.fetchZipUpload(uploadId);
+  }
+
+  @ApiOperation({ summary: 'Append chunk to resumable event zip upload' })
+  @ApiConsumes('application/octet-stream')
+  @ApiOkResponse({
+    example: {
+      uploadId: 'uuid',
+      offset: 209715200,
+      status: 'uploading',
+    },
+  })
+  @UseGuards(AuthJwtGuard, AdminGuard)
+  @Patch('/process/upload/:uploadId')
+  appendZipUpload(
+    @Param('uploadId') uploadId: string,
+    @Req() request: Request,
+    @Headers('upload-offset') uploadOffset: string,
+    @Headers('content-length') contentLength?: string,
+  ) {
+    const offset = Number(uploadOffset);
+
+    if (!Number.isSafeInteger(offset) || offset < 0) {
+      throw new BadRequestException('Invalid upload-offset header');
+    }
+
+    const parsedContentLength =
+      contentLength === undefined ? undefined : Number(contentLength);
+
+    if (
+      parsedContentLength !== undefined &&
+      (!Number.isSafeInteger(parsedContentLength) || parsedContentLength < 0)
+    ) {
+      throw new BadRequestException('Invalid content-length header');
+    }
+
+    return this.eventService.appendZipUpload(
+      uploadId,
+      request,
+      offset,
+      parsedContentLength,
+    );
+  }
+
+  @ApiOperation({ summary: 'Complete event zip upload and queue processing' })
+  @ApiOkResponse({ type: SuccessRdo })
+  @UseGuards(AuthJwtGuard, AdminGuard)
+  @Post('/process/upload/:uploadId/complete')
+  completeZipUpload(@Param('uploadId') uploadId: string): Promise<SuccessRdo> {
+    return this.eventService.completeZipUpload(uploadId);
   }
 
   @ApiOperation({ summary: 'Get event by id' })
@@ -58,50 +139,6 @@ export class EventController {
     @Body() dto: UpdateEventDto,
   ): Promise<EventRdo> {
     return this.eventService.updateEvent(id, dto);
-  }
-
-  @ApiOperation({ summary: 'Process zip file' })
-  @ApiOkResponse({ type: SuccessRdo })
-  @UseGuards(AuthJwtGuard, AdminGuard)
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: {
-        fileSize: 10 * 1024 * 1024 * 1024,
-      },
-      storage: diskStorage({
-        destination: './common/tmp',
-        filename: (req, file, callback) => {
-          console.log('file', file);
-          const ext = path.extname(file.originalname);
-
-          if (!ext) {
-            return callback(null, file.originalname + '.zip');
-          }
-
-          callback(null, file.originalname);
-        },
-      }),
-      fileFilter: (req, file, callback) => {
-        console.log('file filter', file);
-        const ext = path.extname(file.originalname).toLowerCase();
-        if (ext !== '.zip') {
-          return callback(new Error('Only .zip files are allowed'), false);
-        }
-        callback(null, true);
-      },
-    }),
-  )
-  @Post('/process')
-  async processZip(@Body() dto: ProcessEventZipDto): Promise<SuccessRdo> {
-    return this.eventService.processZip(dto.filename, dto.orderDeadline);
-  }
-
-  @ApiOperation({ summary: 'Get presigned url for uploading an archive' })
-  @ApiOkResponse({ example: { url: 'some-url' } })
-  @UseGuards(AuthJwtGuard, AdminGuard)
-  @Get('/zip/presigned-url')
-  getUploadZipPresignedUrl(): Promise<{ url: string; filename: string }> {
-    return this.eventService.getUploadZipPresignedUrl();
   }
 
   @ApiOperation({ summary: 'Delete an event' })

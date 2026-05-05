@@ -4,8 +4,8 @@ import { EventController } from './event.controller';
 import { EventService } from './event.service';
 import { MediaModule } from '../media/media.module';
 import { AuthModule } from 'src/auth/auth.module';
-import { BullModule } from '@nestjs/bullmq';
 import { EventZipProcessor } from './event-zip.processor';
+import { BullModule } from '@nestjs/bullmq';
 import { StorageModule } from '../storage/storage.module';
 
 @Module({
@@ -13,10 +13,10 @@ import { StorageModule } from '../storage/storage.module';
     PrismaModule,
     MediaModule,
     AuthModule,
-    BullModule.registerQueue({ name: 'zip-processing' }),
     StorageModule,
+    BullModule.registerQueue({ name: 'zip-processing' }),
   ],
   controllers: [EventController],
-  providers: [EventService, MediaModule, EventZipProcessor],
+  providers: [EventService, EventZipProcessor],
 })
 export class EventModule {}

@@ -1,3 +1,5 @@
+import { Readable } from 'node:stream';
+
 export const STORAGE_SERVICE = 'STORAGE_SERVICE';
 
 export enum StorageType {
@@ -29,7 +31,7 @@ export interface StorageOptions {
 
 export interface IStorageService {
   uploadFile(
-    file: Buffer,
+    file: Buffer | Readable,
     filename: string,
     options?: StorageOptions,
   ): Promise<string>;
