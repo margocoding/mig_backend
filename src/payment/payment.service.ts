@@ -112,7 +112,6 @@ export class PaymentService {
         )
       ).filter((item) => !!item);
 
-      console.log(foundMedias[0].member.speech);
 
       const mediasAmount = foundMedias.reduce(
         (prev, acc) => prev + acc.member.speech.singlePhotoPrice,
@@ -180,7 +179,8 @@ export class PaymentService {
 
       return `${this.robokassaUrl}?${params.toString()}`;
     } catch (e) {
-      this.logger.error(`Cannot create payment link: ${e}`);
+      this.logger.error(`Cannot create payment link`);
+      console.error(e);
       throw new NotFoundException('Media not found');
     }
   }

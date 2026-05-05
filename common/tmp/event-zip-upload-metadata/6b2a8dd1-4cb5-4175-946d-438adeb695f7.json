@@ -1,0 +1,42 @@
+{
+  "uploadId": "6b2a8dd1-4cb5-4175-946d-438adeb695f7",
+  "filename": "mini-test.zip",
+  "offset": 271745748,
+  "size": 271745748,
+  "status": "queued",
+  "chunks": [
+    {
+      "key": "archive-chunks/6b2a8dd1-4cb5-4175-946d-438adeb695f7/000000000000.bin",
+      "offset": 0,
+      "size": 52428800
+    },
+    {
+      "key": "archive-chunks/6b2a8dd1-4cb5-4175-946d-438adeb695f7/000000000001.bin",
+      "offset": 52428800,
+      "size": 52428800
+    },
+    {
+      "key": "archive-chunks/6b2a8dd1-4cb5-4175-946d-438adeb695f7/000000000002.bin",
+      "offset": 104857600,
+      "size": 52428800
+    },
+    {
+      "key": "archive-chunks/6b2a8dd1-4cb5-4175-946d-438adeb695f7/000000000003.bin",
+      "offset": 157286400,
+      "size": 52428800
+    },
+    {
+      "key": "archive-chunks/6b2a8dd1-4cb5-4175-946d-438adeb695f7/000000000004.bin",
+      "offset": 209715200,
+      "size": 52428800
+    },
+    {
+      "key": "archive-chunks/6b2a8dd1-4cb5-4175-946d-438adeb695f7/000000000005.bin",
+      "offset": 262144000,
+      "size": 9601748
+    }
+  ],
+  "createdAt": "2026-05-05T19:16:37.106Z",
+  "updatedAt": "2026-05-05T19:19:25.222Z",
+  "jobId": "4"
+}

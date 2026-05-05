@@ -32,8 +32,8 @@ export class OrderController {
     return this.orderService.getOrders(
       user.id,
       user.isAdmin,
-      dto.page,
-      dto.limit,
+      +(dto.page || 1),
+      +(dto.limit || 15),
       dto.status,
     );
   }
